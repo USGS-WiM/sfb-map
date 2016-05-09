@@ -1,0 +1,123 @@
+BODY
+{
+	font-family: Century Gothic;
+}
+
+a
+{
+	text-decoration: none;
+	font-family: Arial;
+}
+
+#overlay
+{
+	position: absolute;
+	height: 100%;
+	width: 100%;
+	background-color: #369;
+	/*filter:alpha(opacity=70);
+	-moz-opacity:0.7;
+	-khtml-opacity: 0.7;
+	opacity: 0.7;*/
+	z-index:109;
+}
+
+#overlayContent
+{
+	position: absolute;
+	background-color: #369;
+	height: 30px;
+	width: 300px;
+	padding: 20px;
+	font-weight: bold;
+	color: White;
+	z-index: 110;
+}
+
+#printLink
+{
+	position: absolute;
+	top: 10px;
+	right: 20px;
+}
+
+.sidebar
+{
+	/*margin-left: 810px;
+	top: 100px;*/
+	width: 225px;
+	height: 453px;
+	background-color: #369;
+	color: White;
+	border: solid 2px black;
+	padding: 10px;
+}
+
+.map_explanation
+{
+	position: relative;
+	/*border: solid 1px black;*/
+	border-top: solid 1px black;
+	background-color: #369; /*#235087;*/
+	padding: 0px 5px 0px 5px;
+	margin: 0px 0px 0px 0px;
+	color: White;
+	width: 205px;
+	top: 150px;
+	z-index: 100;
+}
+
+.me_title
+{
+	margin: 5px 0px 0px 0px;
+	padding: 0;
+	font-size: 12pt;
+	font-weight: bold;
+	text-align: center;
+}
+
+#me_table
+{
+	margin: 0px 0px 0px 0px;
+}
+
+.me_img
+{
+	position: relative;
+	margin: 0;
+	padding: 0;
+	border: solid 1px black;
+	width: 35px;
+	height: 35px;
+	float: left;
+	left: 8px;
+	margin-right: 12px;
+}
+
+.restrict_text
+{
+	/*position: relative;*/
+	top: 0px;
+	font-size: 10px;
+}
+
+.title
+{
+	font-size: 18pt;
+	font-family: Century Gothic;
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.vemap
+{
+	position: relative;
+	width: 800px;
+	height: 475px;
+	visibility: visible;
+	border: solid 1px black;
+	background-color: #CCCCCC;
+	visibility: visible;
+	float: left;
+	margin: 0px 10px 0px 0px;
+}

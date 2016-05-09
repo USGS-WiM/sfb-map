@@ -1,0 +1,489 @@
+<!DOCTYPE html 
+     PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en"><!-- InstanceBegin template="/Templates/pula-css-basic-mx.dwt" codeOutsideHTMLIsLocked="false" -->
+<!-- EPA Template version 3.2.1, 28 June 2006 -->
+<head>
+	<!-- InstanceBeginEditable name="doctitle" -->
+	<title>San Francisco Bay Area - Interim Pesticide Use Limitations | Pesticides: Endangered Species Protection Program | US EPA</title>
+	<meta name="DC.description" content="" />
+	<meta name="Keywords" content="interim pesticide use limitation areas, FWS, san francisco bay, " />
+    <!-- InstanceEndEditable -->
+	<!-- InstanceBeginEditable name="metaElements" -->
+	<meta name="DC.title" content="Interim Pesticide Use Limitation Areas near San Francisco Bay, California" />
+	<meta name="DC.subject" content="map" />
+	<meta name="DC.type" content="" />
+	<!-- For date metadata, use the format YYYY-MM-DD -->
+	<meta name="DC.date.modified" content="" />
+	<meta name="DC.date.created" content="20090113" />
+	<meta name="DC.date.reviewed" content="" />
+    <script type="text/javascript" src="https://dev.virtualearth.net/mapcontrol/mapcontrol.ashx?v=6.2&s=1"></script>  
+    <script type="text/javascript" src="https://serverapi.arcgisonline.com/jsapi/ve/?v=1.4"></script>   
+    <script type="text/javascript" src="js/jquery-1.3.2.min.js"></script>
+    <script type="text/javascript" src="js/jquery.hoverintent.min.js"></script>
+    <script type="text/javascript" src="js/ArcGISDynamicService.js"></script>
+    <script type="text/javascript">
+    
+        //Global variables for main mapping application
+        var map = null;
+        var map_options = null;
+        var shapeLayer = null;
+        var county_icon = 0;
+        var aoi_county = 0;
+        var rs_layer = null;	
+        
+        var mapStartCenter = null;
+        var mapCurrentCenter = null;
+        var mapCurrentZoom = null;
+        var mapEndCenter = null;
+        var aoiCount = 0;
+        
+        var limit_area = null;
+        var limit_area_url = "https://sfb.wim.usgs.gov/ArcGIS/rest/services/SFB/limit_areas/MapServer";
+      
+        var identifyTask = null;
+        var identifyParameters = null;
+        
+        var printPoint = null;
+        var printPoly = null;
+        
+        var title = "<b>Active Ingredients Subject to Limitations:</b>";
+        var aiList = null;
+        var name = "";
+        var pdfRoot = "./pdf/Finalpdfs/";
+        
+        var info_offset = new VEPixel(25,0);
+        
+        var highlight_line = new VEColor(255,255,0,1.0);
+        var highlight_fill = new VEColor(0,0,0,0.0);
+        
+        var txtWhere = null;
+        
+        var dashEvent = null;
+        
+        var infoWrapText = null;
+        
+        $(document).ready(function(){
+            
+            //Viewport adjustments for different screen sizes
+            var viewportwidth = null;
+            var viewportheight = null;
+
+            if (typeof window.innerWidth != 'undefined')
+            {
+              viewportwidth = window.innerWidth,
+              viewportheight = window.innerHeight
+            }
+            else if (typeof document.documentElement != 'undefined'
+              && typeof document.documentElement.clientWidth !=
+              'undefined' && document.documentElement.clientWidth != 0)
+            {
+              viewportwidth = document.documentElement.clientWidth,
+              viewportheight = document.documentElement.clientHeight
+            }
+            else
+            {
+              viewportwidth = document.getElementsByTagName('body')[0].clientWidth,
+              viewportheight = document.getElementsByTagName('body')[0].clientHeight
+            }
+            
+            var scrOfX = 0, scrOfY = 0;
+
+            if( typeof( window.pageYOffset ) == 'number' ) {
+                //Netscape compliant
+                scrOfY = window.pageYOffset;
+                scrOfX = window.pageXOffset;
+            } else if( document.body && ( document.body.scrollLeft || document.body.scrollTop ) ) {
+                //DOM compliant
+                scrOfY = document.body.scrollTop;
+                scrOfX = document.body.scrollLeft;
+            } else if( document.documentElement && ( document.documentElement.scrollLeft || document.documentElement.scrollTop ) ) {
+                //IE6 standards compliant mode
+                scrOfY = document.documentElement.scrollTop;
+                scrOfX = document.documentElement.scrollLeft;
+            }
+            
+            //Event to attach custom full extent button to bing map control visibility
+            dashEvent = function() {
+                $("#MSVE_navAction_toggleGlyphWrapper").bind("click", function(e) {
+                    var fe_visibility = $("#full_extent").css("visibility");
+                    if (fe_visibility=="visible") {
+                        $("#full_extent").css({"visibility" : "hidden"});
+                    } else {
+                        $("#full_extent").css({"visibility" : "visible"});
+                    }
+                });
+            }
+            
+            //Custom functionality for "Zoom to County" animated menu.
+            $("#countyLinkWrap").hide();
+            $("#countyWrap").hoverIntent(function(){ $("#countyLinkWrap").slideDown(500); }, function() { $("#countyLinkWrap").slideUp(500); });
+            
+            infoWrapText = $(".infoWrap").html();
+            
+        });
+        
+        //Function to initialize and setup main Map object    
+        function GetMap() {
+        
+            document.getElementById("map").style.visibility = "visible";
+            
+            map = new VEMap('map'); 
+            map_options = new VEMapOptions();
+            map_options.EnableBirdseye = false;
+            map_options.Enable3D = false;
+            
+            map.LoadMap(new VELatLong(37.88829401851566, -122.37084749999998), 8, VEMapStyle.Road, false, VEMapMode.Mode2D, false, 0, map_options);
+            map.EnableShapeDisplayThreshold(false);
+            shapeLayer = new VEShapeLayer();
+            rs_layer = new VEShapeLayer();
+            
+            limit_area = new ESRI.ArcGIS.VE.ArcGISLayerFactory();
+            limit_area.CreateLayer(limit_area_url, "Limitations", AddService);
+            
+            var params = {"LayerOption":"top", "LayerIds": [1], "Tolerance": 1};
+            identifyParameters = new ESRI.ArcGIS.VE.IdentifyParameters(params);
+            identifyTask = new ESRI.ArcGIS.VE.IdentifyTask();
+            identifyTask.Url = limit_area_url;
+            map.AttachEvent("onclick", getInfo);
+            map.AttachEvent("onendzoom", zoom_event);
+            map.AttachEvent("onchangemapstyle", mapSwitch);
+            
+            agisve_dyn_service = new ITNexus.Libraries.WebADF.JavaScript.VE.ArcGISDynamicService();
+			agisve_dyn_service.CreateLayer(limit_area_url, "limit_areas");
+			agisve_dyn_service.addDynamicService(map,1,true);
+            
+            mapStartCenter = map.GetCenter();
+            
+            dashEvent();
+            
+        }
+        
+        function AddService(tileSourceSpec, resourceInfo) {
+            tileSourceSpec.Opacity = 0.4;
+            map.AddTileLayer(tileSourceSpec,true);
+            
+            //agisve_dyn_service = new ITNexus.Libraries.WebADF.JavaScript.VE.ArcGISDynamicService();
+			//agisve_dyn_service.CreateLayer(limit_area_url);
+			//agisve_dyn_service.addDynamicService(map,1,true);
+        }
+        
+        //function to reposition full extent button when basemap changed
+        function mapSwitch(e) {
+            if (e.mapStyle == "a" || e.mapStyle == "h") {
+                $get("full_extent").style.left = "246px";
+            } else if (e.mapStyle == "r") {
+                $get("full_extent").style.left = "242px";
+            }
+        }
+        
+        //map click event. may return species and AI info for polygon.
+        function getInfo(e) {
+            if (map.GetZoomLevel() > 9) {
+                var pixel = new VEPixel(e.mapX, e.mapY);
+                var point = map.PixelToLatLong(pixel);
+                printPoint = point;
+                var idpoint = new VEShape(VEShapeType.Pushpin, point);
+                idpoint.SetCustomIcon("<div></div>");
+                identifyParameters.Geometry = idpoint;
+                var mapDiv = $get("map");
+                identifyParameters.Width = mapDiv.clientWidth;
+                identifyParameters.height = mapDiv.clientHeight;
+                identifyParameters.MapExtent = map.GetMapView();
+                identifyTask.Execute(identifyParameters, addInfo);
+            } else {
+                return;
+            }
+        }
+        
+        function zoom_event(e) {
+            var z = map.GetZoomLevel();
+            if (z <= 9) {
+                rs_layer.DeleteAllShapes();
+                if ($(".infoWrap").html() != infoWrapText) {
+                    $(".infoWrap").hide();
+                    $(".infoWrap").html(infoWrapText);
+                    $(".infoWrap").fadeIn(500);
+                }
+            } else {
+                if ($(".infoWrap").html() == infoWrapText) {
+                    $(".infoWrap").hide();
+                    $(".infoWrap").html("<p><b>Active Ingredients Subject to Limitations:</b></p><p id='aiList'>(click on a limitation area)</p>");
+                    $(".infoWrap").fadeIn(500);
+                }
+            }
+        }
+        
+        //Function to add polygon and Info associated with polygon at click location.
+        function addInfo(identResults) {
+            var err = identResults.Error;
+            if (err != null) {
+                alert(err.message);
+            } else {
+                var shape = identResults.InputGeometry;
+                var point_new = shape.GetPoints();
+                if (shape.GetDescription().length == 0) {
+                    shape.SetDescription("Unable to identify any map features at the click location.");
+                    map.DeleteShapeLayer(rs_layer);
+                    $("#aiList").html("(click on a limitation area)");
+                } else {
+                    map.DeleteShapeLayer(rs_layer);
+                }
+                if (identResults.Results.length > 0) {
+                    rs_layer = identResults.ToVEShapeLayer();
+                    var count = rs_layer.GetShapeCount();
+                    for (i = 0; i < count; i++) {
+                        var shp = rs_layer.GetShapeByIndex(i);
+                        if (i == 0) {
+                            shp.SetLineColor(highlight_line);
+                            shp.SetFillColor(highlight_fill);
+                            shp.SetCustomIcon("<div></div>");
+                        } else {
+                            shp.SetLineColor(highlight_fill);
+                            shp.SetFillColor(highlight_fill);
+                            shp.SetCustomIcon("<div></div>");
+                        }
+                    }
+                    map.AddShapeLayer(rs_layer);
+                    
+                    var res = identResults.Results;
+                    if (res != 0) {
+                        var table_cd = res[0].Value;
+                        if (table_cd.length <= 2) {
+                            //Get to return list of Active Ingredients for specific code.
+                            $.get("../sfbMap/getAI/Default.aspx?table_cd="+table_cd, function(aiData) {
+                                var list = "";
+                                $(aiData).find('AI').each(function(){
+                                    list += $(this).text() + "<br>";
+                                });
+                                if (list.length != $("#aiList").html().length) {
+                                    $("#aiList").hide();
+                                    $("#aiList").html(list);
+                                    $("#aiList").fadeIn(500);
+                                }
+                            });
+                            //Get to return list of species for specific code.
+                            $.get("../sfbMap/getSpeciesList/Default.aspx?table_cd="+table_cd, function(species) {
+                                var info = "<p>";
+                                $(species).find('species').each(function(){
+                                    info += "<a class='fsLink' target='_blank' title='link to fact sheet' href='" + $(this).find('factsheet').text() + "'>" + $(this).attr('id') + "</a><br>";
+                                });
+                                $(species).find('pdf').each(function(){
+                                    name = $(this).text();
+                                });
+                                info += "</p><p><a target='blank' href='" + pdfRoot + name + ".pdf'>Active Ingredient Limitations</a></p><p><a href='javascript:' onclick='PrintMap(" + table_cd + ")'>Printable Map and Limitations</a></p>";
+                                shape.SetTitle("<b>Protected Species:</b>"); 
+                                shape.SetDescription(info);
+                                map.AddShape(shape);
+                                map.ShowInfoBox(shape, point_new[0], info_offset);
+                            });
+                        }
+                    }
+                    
+                } else {
+                    map.DeleteShapeLayer(rs_layer);
+                    $("#aiList").html("(click on a limitation area)");
+                }
+            }
+        }
+        
+        //Extents for zoom to county menu
+        function countyClick(county) {
+    
+            if (county == "Alameda") {
+                map.SetCenterAndZoom(new VELatLong(37.678932, -121.922309), 10);
+            } else if (county == "Contra Costa") {
+                map.SetCenterAndZoom(new VELatLong(37.889798, -121.975828), 10);
+            } else if (county == "Marin") {
+                map.SetCenterAndZoom(new VELatLong(38.071597, -122.721223), 10);
+            } else if (county == "Napa") {
+                map.SetCenterAndZoom(new VELatLong(38.490982, -122.346753), 10);
+            } else if (county == "San Francisco") {
+                map.SetCenterAndZoom(new VELatLong(37.75008654795525, -122.43988037109375), 10);
+            } else if (county == "San Mateo") {
+                map.SetCenterAndZoom(new VELatLong(37.381201, -122.287732), 10);
+            } else if (county == "Santa Clara") {
+                map.SetCenterAndZoom(new VELatLong(37.212541, -121.756304), 10);
+            } else if (county == "Solano") {
+                map.SetCenterAndZoom(new VELatLong(38.284595, -122.054319), 10);
+            } else if (county == "Sonoma") {
+                map.SetCenterAndZoom(new VELatLong(38.43207668538204, -122.80517578125), 10);
+            } else {
+                alert("No data currently available for that county");
+            }
+        
+        }
+        
+        //function to return map to full bay area extent
+        function fullExtent() { map.SetCenterAndZoom(new VELatLong(37.88829, -122.37084), 8); }
+        
+        //function to handle offset created by different browsers
+        (function()
+        {
+            var mouseEvt;
+            if (typeof document.createEvent !== 'undefined')
+            {
+                    mouseEvt = document.createEvent('MouseEvents');
+            }
+            if (mouseEvt && mouseEvt.__proto__ && mouseEvt.__proto__.__defineGetter__)
+            {
+                mouseEvt.__proto__.__defineGetter__('pageX', function()
+                {
+                    return this.clientX + window.pageXOffset;
+                });
+                mouseEvt.__proto__.__defineGetter__('pageY', function()
+                {
+                    return this.clientY + window.pageYOffset;
+                });
+            }
+        })();
+        
+        //function to use Bing geocoder
+        function FindLoc() {         
+            try {            
+                txtWhere = document.getElementById("txtWhere").value;
+                map.Find(null, txtWhere);
+            } catch(e) {            
+                alert(e.message);         
+            }  
+        }
+        
+        //function to set up map to execute print which opens a new window with printable layout
+        function PrintMap(table_cd) {
+            
+            var pZoom = map.GetZoomLevel();
+            var pCenter = map.GetCenter();
+            var pLat = pCenter.Latitude;
+            var pLng = pCenter.Longitude;
+            
+            var printLat = printPoint.Latitude;
+            var printLng = printPoint.Longitude;
+            
+            var mapStyle = map.GetMapStyle();
+            
+            window.open('index_print.html?cd='+table_cd+'&lat='+pLat+'&lng='+pLng+'&zoom='+pZoom+'&printLat='+printLat+'&printLng='+printLng+'&style='+mapStyle+'&rand='+(new Date().getTime()),'PrintMap','width=1110,height=610,toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=yes,copyhistory=no,resizable=no')
+        
+        }
+        
+    </script>
+  <!-- InstanceEndEditable -->
+
+	<meta name="DC.language" content="en" />
+	<!--<meta name="DC.creator" content="Melanie McCalmont, U.S. Geological Survey" />
+	<link rel="schema.DC" href="http://purl.org/dc/elements/1.1/" />
+	<link rel="meta" href="https://www.epa.gov/labels.rdf" type="application/rdf+xml" title="ICRA labels" />
+	<meta http-equiv="Content-Style-Type" content="text/css" />
+	<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />-->
+    
+	<style type="text/css" media="screen">@import 'styles/sf-mapper.css';</style>
+	<!--[if gte IE 6]>
+        <link rel="stylesheet" type="text/css" href="styles/sf-mapper_ie.css" />
+    <![endif]-->
+	<!--<style type="text/css" media="screen">@import 'https://www.epa.gov/epafiles/s/epa.css';</style>
+	[if lt IE 7]>
+		<link rel="stylesheet" type="text/css" href="https://www.epa.gov/epafiles/s/ie.css" />
+	<![endif]-->
+	<link rel="stylesheet" type="text/css" media="print" href="https://www.epa.gov/epafiles/s/print.css" />
+	<!-- These files do some stuff after the footer, might not need them 
+	<script type="text/javascript" src="https://www.epa.gov/epafiles/js/epa-core.js"></script>
+	<script type="text/javascript" src="https://www.epa.gov/epafiles/js/extra.js"></script>-->
+</head> 
+
+<body onload="GetMap();" >
+
+	<div id="content"> <!-- BEGIN CONTENT -->
+		<div class="map_and_sidebar">
+			<div class="howtobox">
+				<form action="#" onsubmit="FindLoc(); return false">
+					<input class="inputbox" type="text" size="40" id="txtWhere" name="txtWhere" value="" />
+					<input type="submit" value="Find Location" name="find"/> <b>CITY, STATE or ZIP (e.g. 'napa, ca' or '94560')</b>
+				</form>
+				<span style="margin-top:-4px;">- <strong>Always zoom in.</strong> Some pesticide use limitation area boundaries are inside others, or are very small habitats.</span>
+					<br /> 
+				- <strong>Click the zoom and pan buttons </strong>to get closer to your exact location
+					<br />
+				- <strong>Use the AERIAL and ROAD buttons </strong>to switch between terrain and roadmap view.
+					<br /> 
+				- <strong>Click the interim pesticide use limitation area</strong> to get a quick list of pesticides limited in your area. 
+					<br />
+			</div>
+			
+			<div id="map" class="vemap">Loading ...</div>
+			
+			<div id="info" class="info">
+				<div class="infoWrap">
+					<p>This mapper is intended to assist pesticide users' understanding of certain interim pesticide use 
+					limitations contained in the Court's Order and Stipulated Injunction and which apply to certain 
+					pesticides in certain geographic areas within the state of California. There are some exceptions to 
+					the interim use limitations which may be found on EPA's 
+					<a target="_blank" href="http://www2.epa.gov/endangered-species/interim-use-limitations-eleven-threatened-or-endangered-species-san-francisco-b-0">Interim Use Limitations page</a>. 
+					If you have not already done so, you should review the Background and Exceptions information on that page  
+					to determine whether the interim limitations apply to your use of a pesticide.</p>
+					<p>Because interim use limitations may be changed or deleted as EPA continues to review the 75 
+					pesticide active ingredients, pesticide users should visit this site before, but close to the time 
+					of pesticide use to determine whether the interim use limitations apply to your use of the specific 
+					pesticide in a specific geographic area. EPA will update this site when limitations change. </p>
+				</div>
+			</div>
+			
+			<div id="full_extent" onclick="fullExtent()">Full Extent</div>
+			<div id="counties" class="counties">
+				<div id="countyWrap">
+					<b class="county_link_title">Zoom to County</b>
+					<div id="countyLinkWrap">
+						<a class="county_link" href="javascript:" onclick="countyClick('Alameda');">Alameda</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('Contra Costa');">Contra Costa</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('Marin');">Marin</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('Napa');">Napa</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('San Mateo');">San Mateo</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('Santa Clara');">Santa Clara</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('Solano');">Solano</a>
+						<br />
+						<a class="county_link" href="javascript:" onclick="countyClick('Sonoma');">Sonoma</a>
+					</div>
+				</div>
+			</div>
+			
+			<div class="map_explanation">
+				<p class="me_title">Map Explanation</p>
+				<br />
+				<table id="me_table">
+					<tr>
+						<td>
+							<img alt="Area where limitations may apply" id="area" class="me_img" src="images/areaLimits_50px.PNG" />
+						</td>
+						<td>
+							<p class="restrict_text">Area Where Interim Pesticide Use Limitations May Apply</p>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<img alt="Interim Pesticide Use Limitation Area" id="photo" class="me_img" src="images/limit_area.PNG" />
+						</td>
+						<td>
+							<p class="restrict_text">Interim Pesticide Use Limitation Area</p>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<img alt="CSBF Habitat" id="butterflyLimit" class="me_img" src="images/csbf_area.PNG" />
+						</td>
+						<td>
+							<p class="restrict_text">Checkerspot Butterfly Habitat</p>
+						</td>
+					</tr>
+				</table>
+			</div>
+			
+		</div>
+	</div> <!-- END CONTENT -->
+
+</body>
+<!-- InstanceEnd --></html>
