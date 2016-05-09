@@ -1,0 +1,578 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" >
+<head>
+    <title>Printable SFB Map</title>
+    <link rel="stylesheet" type="text/css" href="./styles/sfb_style_ve_print.css" />
+    <!--[if gte IE 6]>
+    <link rel="stylesheet" type="text/css" href="./styles/sfb_style_ve_ie_print.css" />
+    <![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">      
+    <script type="text/javascript" src="https://dev.virtualearth.net/mapcontrol/mapcontrol.ashx?v=6.2&s=1"></script>  
+    <script type="text/javascript" src="https://serverapi.arcgisonline.com/jsapi/ve/?v=1.4"></script>   
+    <script type="text/javascript" src="/js/jquery-1.3.2.min.js"></script>
+    <script type="text/javascript" src="/js/jquery.url.packed.js"></script>
+    <script type="text/javascript" src="/js/ArcGISDynamicService.js"></script>
+    <script type="text/javascript">
+    
+        //Global variables for main mapping application
+        var map = null;
+        var map_options = null;
+        var shapeLayer = null;
+        var county_icon = 0;
+        var aoi_county = 0;
+        var rs_layer = null;
+        
+        var mapStartCenter = null;
+        var mapCurrentCenter = null;
+        var mapCurrentZoom = null;
+        var mapEndCenter = null;
+        var aoiCount = 0;
+        
+        var printLat = null;
+        var printLng = null;
+        
+        var tb_cd = null;
+        
+        var limit_area = null;
+        var limit_area_url = "https://sfb.wim.usgs.gov/ArcGIS/rest/services/SFB/limit_areas/MapServer";
+        var csbf_url = "https://sfb.wim.usgs.gov/ArcGIS/rest/services/SFB/csbf_limit_areas/MapServer";
+        
+        var queryTask = null;
+        var queryParams = null;
+        var identifyTask = null;
+        var identifyParameters = null;
+        
+        var title = "<b>Protected Species:</b>";
+        var html = null;
+        
+        var info_offset = new VEPixel(25,0);
+        
+        var highlight_line = new VEColor(255,255,0,1.0); // yellow
+        var highlight_fill = new VEColor(139,0,139,0.5); // magenta
+        
+        var iconSpec = new VECustomIconSpecification();
+        iconSpec.Image = "https://54.204.27.243/sfb/images/blank_1x1.png";
+        
+        $(document).ready(function(){
+        
+            //Viewport adjustments for different screen sizes
+            var viewportwidth = null;
+            var viewportheight = null;
+
+            if (typeof window.innerWidth != 'undefined')
+            {
+              viewportwidth = window.innerWidth,
+              viewportheight = window.innerHeight
+            }
+            else if (typeof document.documentElement != 'undefined'
+              && typeof document.documentElement.clientWidth !=
+              'undefined' && document.documentElement.clientWidth != 0)
+            {
+              viewportwidth = document.documentElement.clientWidth,
+              viewportheight = document.documentElement.clientHeight
+            }
+            else
+            {
+              viewportwidth = document.getElementsByTagName('body')[0].clientWidth,
+              viewportheight = document.getElementsByTagName('body')[0].clientHeight
+            }
+            
+            var scrOfX = 0, scrOfY = 0;
+
+            if( typeof( window.pageYOffset ) == 'number' ) {
+                //Netscape compliant
+                scrOfY = window.pageYOffset;
+                scrOfX = window.pageXOffset;
+            } else if( document.body && ( document.body.scrollLeft || document.body.scrollTop ) ) {
+                //DOM compliant
+                scrOfY = document.body.scrollTop;
+                scrOfX = document.body.scrollLeft;
+            } else if( document.documentElement && ( document.documentElement.scrollLeft || document.documentElement.scrollTop ) ) {
+                //IE6 standards compliant mode
+                scrOfY = document.documentElement.scrollTop;
+                scrOfX = document.documentElement.scrollLeft;
+            }
+            
+            var ovCh = $("#overlayContent").css("height").split("px");
+            var ovCw = $("#overlayContent").css("width").split("px");
+            
+            var ovCt = scrOfY + viewportheight/2 - ovCh[0]/2;
+            var ovCl = scrOfX + viewportwidth/2 - ovCw[0]/2;
+            var ovCtX = ovCt + 'px';
+            var ovClX = ovCl + 'px';
+            
+            $("#overlay").css({'top' : scrOfY+'px', 'left' : scrOfX+'px'});
+            $("#overlayContent").css({'top' : ovCtX, 'left' : ovClX});
+            
+            var month = new Date().getMonth()+1;
+            var date = month+"-"+(new Date()).getDate()+"-"+(new Date()).getFullYear();
+            $("#title").html("Interim Pesticide Use Limitation Map ("+date+")");
+            
+        });
+        
+        function GetMap() {
+        
+            tb_cd = jQuery.url.param("cd");
+            var lat = jQuery.url.param("lat");
+            var lng = jQuery.url.param("lng");
+            var zoom = jQuery.url.param("zoom");
+            printLat = jQuery.url.param("printLat");
+            printLng = jQuery.url.param("printLng");
+            var mapStyle = jQuery.url.param("style");
+            
+            document.getElementById("map").style.visibility = "visible";
+            
+            map = new VEMap('map'); 
+            map.HideDashboard();
+            
+            map.LoadMap(new VELatLong(lat,lng),zoom,mapStyle);//,true);
+            //map.ShowFindControl();
+            map.EnableShapeDisplayThreshold(false);
+            
+            map.AttachEvent("onmousedown", MouseDown);
+            map.AttachEvent("onmousewheel", MouseWheel);
+            map.AttachEvent("ondoubleclick", DoubleClick);
+            
+            $("#printLink").click(function() {
+                $(this).hide();
+                window.print();
+                $(this).fadeIn(1000);
+            });
+
+            var mapView = map.GetMapView();
+            
+            var pt = mapView.TopLeftLatLong;
+            var ptOne = pt.toString();
+            var pt1 = ptOne.split(",");
+            var pt = mapView.BottomRightLatLong;
+            var ptTwo = pt.toString();
+            var pt2 = ptTwo.split(",");
+            
+            var mapExtent = new VEShape(VEShapeType.Polygon, [new VELatLong(pt1[0],pt1[1]), new VELatLong(pt1[0],pt2[1]), new VELatLong(pt2[0],pt2[1]), new VELatLong(pt2[0],pt1[1])]);
+            
+            shapeLayer = new VEShapeLayer();
+            
+            var params = {"LayerOption":"top", "LayerIds": [1], "Tolerance": 1};
+            identifyParameters = new ESRI.ArcGIS.VE.IdentifyParameters(params);
+            identifyTask = new ESRI.ArcGIS.VE.IdentifyTask();
+            identifyTask.Url = limit_area_url;
+            
+            map.AddShapeLayer(shapeLayer);
+            
+            if (map.GetZoomLevel() > 9) {
+                if (tb_cd == 4 || tb_cd == 6 || tb_cd == 10) {
+                    csbf_dyn = new ITNexus.Libraries.WebADF.JavaScript.VE.ArcGISDynamicService();
+                    csbf_dyn.CreateLayer(csbf_url,"Checkerspot Butterfly Habitat");
+                    csbf_dyn.addDynamicService(map,1,true);
+                }
+                point = new VELatLong(printLat,printLng);
+                var idpoint = new VEShape(VEShapeType.Pushpin, point);
+                idpoint.SetCustomIcon("https://54.204.27.243/sfb/images/blank_1x1.png");
+                identifyParameters.Geometry = idpoint;
+                var mapDiv = $get("map");
+                identifyParameters.Width = mapDiv.clientWidth;
+                identifyParameters.height = mapDiv.clientHeight;
+                identifyParameters.MapExtent = map.GetMapView();
+                identifyTask.Execute(identifyParameters, addInfo);
+            } else {
+                return;
+            }
+            
+            if (tb_cd == 4 || tb_cd == 6 || tb_cd == 10) {
+                
+            } else {
+                $("#butterflyLimit").hide();
+                $("#butterflyText").hide();
+            }
+            
+            mapStartCenter = map.GetCenter();
+            
+            //$("#info").html(info_box(tb_cd));
+            
+            var printOpt = new VEPrintOptions(true);
+            map.SetPrintOptions(printOpt);
+            
+        }
+        
+        function MouseDown() {
+            return true;
+        }
+
+        function MouseWheel() {
+            return true;
+        }
+        
+        function DoubleClick() {
+            return true;
+        }
+
+        function initQuery(data) {
+            var err = data.Error
+            if (err != null) {
+                alert(err.message);
+            } else {
+                var results = data.Features;
+                var rs_fill = new VEColor(255,0,255,0.5);
+                var rs_line = new VEColor(0,0,0,0.5);
+                if (results) {
+                    for (i = 0; i < results.length; i++) {
+                        var result = results[i];
+                        var shapes = result.Shapes;
+                        for (j = 0; j < shapes.length; j++) {
+                            var shp = shapes[j];
+                            shp.SetLineColor(rs_line);
+                            shp.SetFillColor(rs_fill);
+                            shp.SetLineWidth(1);
+                            shp.SetCustomIcon("https://54.204.27.243/sfb/images/blank_1x1.png");
+                            map.AddShape(shp);
+                        }
+                    }
+                }
+                if (map.GetZoomLevel() > 9) {
+                    point = new VELatLong(printLat,printLng);
+                    var idpoint = new VEShape(VEShapeType.Pushpin, point);
+                    idpoint.SetCustomIcon("https://54.204.27.243/sfb/images/blank_1x1.png");
+                    identifyParameters.Geometry = idpoint;
+                    var mapDiv = $get("map");
+                    identifyParameters.Width = mapDiv.clientWidth;
+                    identifyParameters.height = mapDiv.clientHeight;
+                    identifyParameters.MapExtent = map.GetMapView();
+                    identifyTask.Execute(identifyParameters, addInfo);
+                } else {
+                    return;
+                }
+            }
+        }
+        
+        function addInfo(identResults) {
+            var err = identResults.Error;
+            if (err != null) {
+                alert(err.message);
+            } else {
+                var shape = identResults.InputGeometry;
+                var point_new = shape.GetPoints();
+                if (identResults.Results.length > 0) {
+                    rs_layer = identResults.ToVEShapeLayer();
+                    var count = rs_layer.GetShapeCount();
+                    var outputShapes = new Array();
+                    for (i = 0; i < count; i++) {
+                        var shp = rs_layer.GetShapeByIndex(i);
+                        outputShapes.push(shp.GetPoints());
+                        shp.SetLineColor(highlight_line);
+                        shp.SetFillColor(highlight_fill);
+                        shp.SetCustomIcon("https://54.204.27.243/sfb/images/blank_1x1.png");
+                    }
+                    //map.AddShapeLayer(rs_layer);
+                    var res = identResults.Results;
+                    if (res != 0) {
+                        var table_cd = res[0].Value;
+                        if (table_cd.length <= 2) {
+                            var info = info_box(table_cd);
+                        }   
+                    }
+                    
+                    var output = complexPolygon(outputShapes);
+                    
+                    for(var i=0;i<output.length;i++)
+                    {
+                        var type = output[i].GetType();
+                        //add code for if line > line_color and if polygon > fill_color
+                        output[i].SetFillColor(new VEColor(255,25,64,0.2));
+                        
+                        //this made the line disappear
+                        if (type == VEShapeType.Polyline) { 
+                            output[i].SetLineColor(new VEColor(0,0,0,0.2));
+                            output[i].SetLineWidth(1.67);
+                        }
+                        map.AddShape(output[i]);
+                    }
+                    
+                    shape.SetTitle(""); 
+                    shape.SetDescription(info);
+                    shape.SetCustomIcon(iconSpec);
+                    map.AddShape(shape);
+                    //map.ShowInfoBox(shape, point_new[0], info_offset);
+                    
+                    $("#map").unbind("click");
+                    
+                    $("#info").html(info_box(tb_cd));
+                    
+                    var mapAndInfoCss = {
+                        'padding': '0px'
+                    }
+                    
+                    var aiTableCss = {
+                        'border': 'solid 1px Black',
+                        'background-color': '#E0E0E0',
+                        'float': 'left'
+                    }
+                    
+                    var aiTableEvenRows = {
+                        'border-bottom-style': 'solid',
+                        'border-bottom-width': '1px',
+                        'border-bottom-color': '#E0E0E0'
+                        //'background-color': 'black'
+                        //'border': 'solid 1px Black'
+                    }
+                    
+                    var aiTableOddRows = {
+                        'border-bottom-style': 'solid',
+                        'border-bottom-width': '1px',
+                        'border-bottom-color': 'Gray'
+                        //'background-color': 'black'
+                        //'border': 'solid 1px Black'
+                    }
+                        
+                    jQuery.get("./html/"+html+"?rand="+(new Date()).getTime(), function(data) {
+                        $("#information").html(data);
+                        
+                        $(".overlay").fadeOut(500);
+                        $("body").css({'overflow':''});
+                        $("body").attr({"scroll":"yes"});
+                        
+                        $("table:eq(2)").after("<p style='width: 10px; height: 500px; color: blue; float: left'></p>");
+                        
+                        $("table:eq(0)").css(mapAndInfoCss);
+                        
+                        if (table_cd <= 9 || table_cd >= 21) {
+                            $("table:eq(2)").css(aiTableCss);
+                            $("table:eq(2) tr:nth-child(even)").css("background-color", "Gray");
+                            $("table:eq(2) tr:even td").css(aiTableEvenRows);
+                            $("table:eq(2) tr:odd td").css(aiTableOddRows);
+                            
+                            if (table_cd == 1 || table_cd == 22 || table_cd == 24) {
+                                $("table:eq(3)").css(aiTableCss);
+                                $(".plant:eq(0)").css('height', '273px');
+                                $(".plant:eq(3)").css('height', '239px');
+                            } else if (table_cd == 2) {
+                                $("table:eq(2)").css('float', 'right');
+                                $(".plant:eq(0)").css('height', '273px');
+                                $(".plant:eq(3)").css('height', '239px');
+                            }
+                        }
+                        
+                        if (table_cd == 11 || table_cd == 15) {
+                            $("table:eq(2)").css(aiTableCss);
+                            $("table:eq(2)").css('float', 'right');
+                            $(".plant:eq(0)").css('height', '273px');
+                            $(".plant:eq(3)").css('height', '239px');
+                        }
+                        
+                    });
+         
+                }
+            }
+        }
+        
+        function info_box(table_cd) {
+            if (table_cd == "1") {
+                species = "California Clapper Rail<br/>Salt Marsh Harvest Mouse<br/>Delta Smelt<br/>";
+                html = "CR_SMM_DS.html";
+                ai_list = "Acephate<br/>Alachlor<br/>Atrazine<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>brodifacoum<br/>bromadiolone<br/>bromethalin<br/>carbaryl<br/>carbofuran<br/>chlorophacinone<br/>chlorothanlonil<br/>chlorpyrifos<br/>cholecalciferol<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>diazinon<br/>dimethoate<br/>diphacinone<br/>diquat dibromie<br/>disulfoton<br/>endosulfan<br/>EPTC (eptam)<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>malathion<br/>methamidophos<br/>methidathion<br/>methomyl<br/>metolachlor<br/>naled<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>permethrin<br/>phenothrin<br/>propargite<br/>resmethrin<br/>simazine<br/>S-metolachlor<br/>strychnine<br/>tetramethrin<br/>thiobencarb<br/>tralomethrin<br/>trifluralin<br/>warfarin<br/>zeta-cypermethrin<br/>zinc phosphide<br/>";
+            } else if (table_cd == "2") {
+                species = "California Clapper Rail<br/>Salt Marsh Harvest Mouse<br/>";
+                html = "CR_SMM.html";
+                ai_list = "Acephate<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>brodifacoum<br/>bromadiolone<br/>bromethalin<br/>chlorophacinone<br/>chlorothalonil<br/>chlorpyrifos<br/>cholecalciferol<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>dimethoate<br/>diphacinone<br/>disulfoton<br/>endosulfan<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>methamidophos<br/>methidathion<br/>methomyl<br/>naled<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>permethrin<br/>phenothrin<br/>propargite<br/>resmethrin<br/>strychnine<br/>tetramethrin<br/>tralomethrin<br/>warfarin<br/>zeta-cypermethrin<br/>zinc phosphide<br/>";
+            } else if (table_cd == "3") {
+                species = "California Freshwater Shrimp<br/>Tidewater Goby<br/>";
+                html = "FS_TG.html";
+                ai_list = "Acephate<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>chlorothalonil<br/>Chlorpyrifos<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>Diazinon<br/>dimethoate<br/>disulfoton<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>methamidophos<br/>methidathion<br/>methomyl<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>phenothrin<br/>propargite<br/>resmethrin<br/>tetramethrin<br/>tralomethrin<br/>zeta-cypermethrin<br/>";
+            } else if (table_cd == "4") {
+                species = "San Francisco Garter Snake<br/>Bay Checkerspot Butterfly<br/>";
+                html = "SFGS_CSBF.html";
+                ai_list = "Acephate<br/>aluminumphosphide<br/>azinphosmethyl<br/>carbofuran100<br/>chlorpyrifos<br/>endosulfan<br/>inorganicnitrates(potassiumandsodium)<br/>magnesiumphosphide<br/>naled<br/>oryzalin<br/>permethrin<br/>phorate<br/>trifluralin<br/>";
+            } else if (table_cd == "5") {
+                species = "San Francisco Garter Snake<br/>Tidewater Goby<br/>";
+                html = "SFGS_TG.html";
+                ai_list = "Acephate<br/>aluminum phosphide<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>carbofuran<br/>chlorothalonil<br/>chlorpyrifos<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>diazinon<br/>dimethoate<br/>disulfoton<br/>endosulfan<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>magnesium phosphide<br/>methamidophos<br/>methidathion<br/>methomyl<br/>naled<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>permethrin<br/>phenothrin<br/>potassium nitrate<br/>propargrite<br/>resmethrin<br/>sodium nitrate<br/>strychnine<br/>tetramethrin<br/>tralomethrin<br/>trifluralin<br/>zeta-cypermethrin<br/>"
+            } else if (table_cd == "6") {
+                species = "California Tiger Salamander<br/>Bay Checkerspot Butterfly<br/>";
+                html = "TS_CSBF.html";
+                ai_list = "Acephate<br/>aluminum phosphide<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>chlorophacinone<br/>chlorothalonil<br/>chlorpyrifos<br/>cyfluthrin<br/>cyhalothrin (lamdba)<br/>cypermethrin<br/>deltamethrin<br/>dimethoate<br/>diphacinone<br/>disulfoton<br/>endosulfan<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>malathion<br/>mancozeb<br/>maneb<br/>metam sodium<br/>methamidophos<br/>methidathion<br/>methomyl<br/>methoprene<br/>methyl bromide<br/>naled<br/>oryzalin<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>pendimethalin<br/>permethrin<br/>phenothrin<br/>phorate<br/>phosmet<br/>propargite<br/>resmethrin<br/>S-metolachlor<br/>strychnine<br/>tetramethrin<br/>tralomethrin<br/>zeta-cypermethrin<br/>";
+            } else if (table_cd == "7") {
+                species = "California Tiger Salamander<br/>San Joaquin Kit Fox<br/>Alameda Whipsnake<br/>";
+                html = "TS_KF_WS.html";
+                ai_list = "2,4-D<br/>Acephate<br/>Acrolein<br/>aldicarb<br/>aluminum phosphide<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>brodifacoum<br/>bromadiolone<br/>bromethalin<br/>carbofuran<br/>chlorophacinone<br/>chlorothalonil<br/>chlorpyrifos<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>difethialone<br/>dimethoate<br/>diphacinone<br/>disulfoton<br/>endosulfan<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>magnesium phosphide<br/>malathion<br/>mancozeb<br/>maneb<br/>metam sodium<br/>methamidophos<br/>methidathion<br/>methomyl<br/>methoprene<br/>methyl bromide<br/>naled<br/>oryzalin<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>phenothrin<br/>phorate<br/>phosmet<br/>potassium nitrate<br/>propargrite<br/>resmethrin<br/>S-metolachlor<br/>sodium cyanide<br/>sodium nitrate<br/>strychnine<br/>tetramethrin<br/>tralomethrin<br/>trifluralin<br/>warfarin<br/>zeta-cypermethrin<br/>zinc phosphide<br/>";
+            } else if (table_cd == "8") {
+                species = "California Tiger Salamander<br/>San Joaquin Kit Fox<br/>";
+                html = "TS_KF.html";
+                ai_list = "Acephate<br/>aldicarb<br/>aluminum phosphide<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>brodifacoum<br/>bromadiolone<br/>carbofuran<br/>chlorophacinone<br/>chlorothalonil<br/>chlorpyrifos<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>dimethoate<br/>diphacinone<br/>disulfoton<br/>endosulfan<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>magnesium phosphide<br/>malathion<br/>mancozeb<br/>maneb<br/>metam sodium<br/>methamidophos<br/>methidathion<br/>methomyl<br/>methoprene<br/>methyl bromide<br/>naled<br/>oryzalin<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>phenothrin<br/>phorate<br/>phosmet<br/>potassium nitrate<br/>propargrite<br/>resmethrin<br/>S-metolachlor<br/>sodium cyanide<br/>sodium nitrate<br/>strychnine<br/>tetramethrin<br/>tralomethrin<br/>trifluralin<br/>zeta-cypermethrin<br/>";
+            } else if (table_cd == "9") {
+                species = "California Tiger Salamander<br/>Alameda Whipsnake<br/>";
+                html = "TS_WS.html";
+                ai_list = "2,4-D<br/>Acephate<br/>Acrolein<br/>aldicarb<br/>aluminum phosphide<br/>azinphos-methyl<br/>bensulide<br/>beta-cyfluthrin<br/>bifenthrin<br/>brodifacoum<br/>bromadiolone<br/>bromethalin<br/>chlorophacinone<br/>chlorothalonil<br/>chlorpyrifos<br/>cyfluthrin<br/>cyhalothrin (lambda)<br/>cypermethrin<br/>deltamethrin<br/>difethialone<br/>dimethoate<br/>diphacinone<br/>disulfoton<br/>endosulfan<br/>esfenvalerate<br/>ethoprop<br/>fenpropathin<br/>fipronil<br/>fluvalinate<br/>imidacloprid<br/>magnesium phosphide<br/>malathion<br/>mancozeb<br/>maneb<br/>metam sodium<br/>methamidophos<br/>methidathion<br/>methomyl<br/>methoprene<br/>methyl bromide<br/>oryzalin<br/>oxydemeton-methyl<br/>oxyfluorfen<br/>PCNB<br/>phenothrin<br/>phosmet<br/>potassium nitrate<br/>propargrite<br/>resmethrin<br/>S-metolachlor<br/>sodium nitrate<br/>strychnine<br/>tetramethrin<br/>tralomethrin<br/>warfarin<br/>zeta-cypermethrin<br/>zinc phosphide<br/>";
+            } else if (table_cd == "10") {
+                species = "Bay Checkerspot Butterfly<br/>";
+                html = "CSBF.html";
+                ai_list = "acephate<br/>azinphosmethyl<br/>chlorpyrifos<br/>endosulfan<br/>naled<br/>permethrin<br/>phorate<br/>";
+            } else if (table_cd == "11") {
+                species = "California Clapper Rail<br/>";
+                html = "CR.html";
+                ai_list = "acephate<br/>azinphosmethyl<br/>chlorpyrifos<br/>naled<br/>permethrin<br/>";
+                pdf = "./pdf/CR.pdf";
+            } else if (table_cd == "12") {
+                species = "Delta Smelt<br/>";
+                html = "DS.html";
+                ai_list = "alachlor<br/>atrazine<br/>carbaryl<br/>carbofuran<br/>chlorpyrifos<br/>diazinon<br/>diquatdibromie<br/>EPTCeptam<br/>malathion<br/>metolachlor and s metolachlor<br/>";
+                pdf = "./pdf/DS.pdf";
+            } else if (table_cd == "13") {
+                species = "California Freshwater Shrimp<br/>";
+                html = "FS.html";
+                ai_list = "Acephate<br/>chlorpyrifos<br/>";
+            } else if (table_cd == "14") {
+                species = "San Joaquin Kit Fox<br/>";
+                html = "KF.html";
+                ai_list = "brodifacoum<br/>bromadiolone<br/>chlorophacinone<br/>cholecalciferol<br/>magnesium phosphide<br/>strychnine<br/>";
+                pdf = "./pdf/KF.pdf";
+            } else if (table_cd == "15") {
+                species = "Salt Marsh Harvest Mouse<br/>";
+                html = "SMM.html";
+                ai_list = "acephate<br/>brodifacoum<br/>bromadiolone<br/>bromethalin<br/>chlorophacinone<br/>chlorpyrifos<br/>cholecalciferol<br/>diphacinone<br/>endosulfan<br/>permethrin<br/>warfarin<br/>zincphosphide<br/>";
+            } else if (table_cd == "16") {
+                species = "San Francisco Garter Snake<br/>";
+                html = "SFGS.html";
+                ai_list = "acephate<br/>aluminumphosphide<br/>azinphosmethyl<br/>carbofuran<br/>chlorpyrifos<br/>endosulfan<br/>inorganicnitrates(potassiumandsodium)<br/>magnesiumphosphide<br/>naled<br/>oryzalin<br/>permethrin<br/>trifluralin<br/>";
+            } else if (table_cd == "17") {
+                species = "Tidewater Goby<br/>";
+                html = "TG.html";
+                ai_list = "diazinon<br/>simazine<br/>thiobencarb<br/>trifluralin<br/>";
+            } else if (table_cd == "18") {
+                species = "California Tiger Salamander<br/>";
+                html = "TS.html";
+                ai_list = "acephate<br/>aluminumphosphide<br/>azinphosmethyl<br/>chlorophacinone<br/>diphacinone<br/>endosulfan<br/>fenamiphos<br/>malathion<br/>mancozeb<br/>maneb<br/>metamsodium<br/>methyolbromide<br/>oryzalin<br/>phosmet<br/>strychnine<br/>";
+            } else if (table_cd == "19") {
+                species = "Valley Elderberry Longhorn Beetle<br/>";
+                html = "VL.html";
+                ai_list = "acephate<br/>aldicarb<br/>azinphosmethyl<br/>carbofuran<br/>chlorpyrifos<br/>endosulfan<br/>phorate<br/>";
+            } else if (table_cd == "20") {
+                species = "Alameda Whipsnake<br/>";
+                html = "WS.html";
+                ai_list = "2,4-D<br/>Acrolein<br/>Aluminum phosphate<br/>Brodifacoum<br/>Bromadiolone<br/>Bromethalin<br/>Chlorophacinone<br/>Cholecalciferol<br/>Difethialone<br/>Diphacinone<br/>Inorganic nitrates (potassium and sodium)<br/>Magnesium phosphide<br/>Trifluralin<br/>Warfarin<br/>";
+            } else if (table_cd == "21") {
+                //combo no longer present
+                species = "Alameda Whipsnake<br/>San Joaquin Kit Fox<br/>";
+                html = "WS_KF.html";
+                ai_list = "2,4-D<br/>Acrolein<br/>Aluminum phosphate<br/>Brodifacoum<br/>Bromadiolone<br/>Bromethalin<br/>Chlorophacinone<br/>Cholecalciferol<br/>Difethialone<br/>Diphacinone<br/>Inorganic nitrates (potassium and sodium)<br/>Magnesium phosphide<br/>Strychnine<br/>Trifluralin<br/>Warfarin<br/>";
+                pdf = "./pdf/null.pdf";
+            } else if (table_cd == "22") {
+                //combo no longer present
+                species = "California Clapper Rail<br/>Delta Smelt<br/>";
+                ai_list = "acephate<br/>alachlor<br/>atrazine<br/>azinphosmethyl<br/>carbaryl<br/>carbofuran<br/>chlorpyrifos<br/>diazinon<br/>diquatdibromie<br/>EPTCeptam<br/>malathion<br/>metolachlor and s metolachlor<br/>naled<br/>permethrin<br/>";
+            } else if (table_cd == "23") {
+                //combo no longer present
+                species = "San Joaquin Kit Fox<br/>Delta Smelt<br/>";
+                ai_list = "alachlor<br/>atrazine<br/>brodifacoum<br/>bromadiolone<br/>carbaryl<br/>carbofuran<br/>chlorophacinone<br/>chlorpyrifos<br/>cholecalciferol<br/>diazinon<br/>diquatdibromie<br/>EPTCeptam<br/>magnesium phosphide<br/>malathion<br/>metolachlor and s metolachlor<br/>strychnine<br/>";
+            } else if (table_cd == "24") {
+                species = "Salt Marsh Harvest Mouse<br/>Delta Smelt<br/>";
+                html = "SMM_DS.html";
+                ai_list = "acephate<br/>alachlor<br/>atrazine<br/>brodifacoum<br/>bromadiolone<br/>bromethalin<br/>carbaryl<br/>carbofuran<br/>chlorophacinone<br/>chlorpyrifos<br/>cholecalciferol<br/>diazinon<br/>diphacinone<br/>diquatdibromie<br/>endosulfan<br/>EPTCeptam<br/>malathion<br/>metolachlor and s metolachlor<br/>permethrin<br/>warfarin<br/>zincphosphide<br/>";
+            } else if (table_cd == "25") {
+                species = "California Tiger Salamander<br/>Delta Smelt<br/>";
+                html = "TS_DS.html";
+                ai_list = "acephate<br/>alachlor<br/>aluminumphosphide<br/>atrazine<br/>azinphosmethyl<br/>carbaryl<br/>carbofuran<br/>chlorpyrifos<br/>chlorophacinone<br/>diazinon<br/>diphacinone<br/>diquatdibromie<br/>endosulfan<br/>EPTCeptam<br/>fenamiphos<br/>malathion<br/>mancozeb<br/>maneb<br/>metamsodium<br/>methyolbromide<br/>metolachlor and s metolachlor<br/>oryzalin<br/>phosmet<br/>strychnine<br/>";
+                pdf = "./pdf/null.pdf";
+            } else if (table_cd == "26") {
+                //combo no longer present
+                species = "California Tiger Salamander<br/>San Joaquin Kit Fox<br/>Delta Smelt<br/>";
+                ai_list = "acephate<br/>alachlor<br/>aluminumphosphide<br/>atrazine<br/>azinphosmethyl<br/>brodifacoum<br/>bromadiolone<br/>carbaryl<br/>carbofuran<br/>chlorpyrifos<br/>chlorophacinone<br/>cholecalciferol<br/>diazinon<br/>diphacinone<br/>diquatdibromie<br/>endosulfan<br/>EPTCeptam<br/>fenamiphos<br/>magnesium phosphide<br/>malathion<br/>mancozeb<br/>maneb<br/>metamsodium<br/>methyolbromide<br/>metolachlor and s metolachlor<br/>oryzalin<br/>phosmet<br/>strychnine<br/>";
+            } else {
+                descrip = "error retrieving data";
+                return;
+            }
+            
+            descrip = "<b>" + title + "</b><p>" + species + "</p>"  //<a target='blank' href='" + pdf + "'>Click for more information on limitations</a>"
+            //alert(table_cd + " " + descrip);
+            tb_cd = table_cd;
+            var info = descrip;
+            return info;
+        }
+        
+        function complexPolygon(polyPoints)
+	     {
+		    if(polyPoints.length > 0)
+		    {
+			    var anchor = polyPoints[0][0];
+			    var points = polyPoints[0].concat(anchor);
+			    var lines = new Array();
+    			
+			    var line = new VEShape(VEShapeType.Polyline,points);
+			    line.HideIcon();
+			    lines.push(line);
+    			
+			    for(var i=1;i<polyPoints.length;i++)
+			    {
+				    points = points.concat(polyPoints[i],polyPoints[i][0],anchor);
+    				
+				    var line = new VEShape(VEShapeType.Polyline,polyPoints[i].concat(polyPoints[i][0]));
+				    line.HideIcon();
+    				
+				    lines.push(line);
+			    }
+    			
+			    var polygon = new VEShape(VEShapeType.Polygon, points);
+			    polygon.SetLineColor(new VEColor(0,0,0,0));
+			    polygon.HideIcon();
+    			
+			    return lines.concat(polygon);
+		    }
+    		
+		    return null;
+	     }
+
+        
+    </script>
+</head>
+<body onload="GetMap();" style="overflow: hidden" scroll="no">  
+
+<!-- Overlay Markup -->
+<div id="overlay" class="overlay"></div>
+<div id="overlayContent" class="overlay">
+    Preparing document for printing ... <img alt="drawing map" class="activ_indic" src="./images/ajax-loader.gif" />
+</div>
+<!-- End Overlay Markup -->
+
+<a id="printLink" href="javascript:">Print Map</a>
+<div id="title" class="title">Interim Pesticide Use Limitation Map</div>
+
+<table>
+    <tr>
+        <td>
+            <div id="map" class="vemap">Loading ...</div>
+        </td>
+        <td>
+            <div id="sidebar" class="sidebar">
+                <div id="info"></div>
+                <div class="map_explanation">
+                    <p class="me_title">Map Explanation</p>
+                    <br />
+                    <table id="me_table">
+                        <tr>
+                            <td>
+                                <img alt="Interim Pesticide Use Limitation Area" id="photo" class="me_img" src="images/limit_area.PNG" />
+                            </td>
+                            <td>
+                                <p class="restrict_text">Interim Pesticide Use Limitation Area</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <img alt="CSBF Habitat" id="butterflyLimit" class="me_img" src="images/csbf_area.PNG" />
+                            </td>
+                            <td>
+                                <p id="butterflyText" class="restrict_text">Checkerspot Butterfly Habitat</p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div> 
+        </td>
+    </tr> 
+</table>
+
+<p></p>
+
+<!--<img alt="list image" src="./images/list.gif" />-->
+<div id="information"></div>
+
+</body>
+</html>
