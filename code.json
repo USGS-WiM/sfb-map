@@ -1,0 +1,46 @@
+[
+    {
+      "name": "sfb-map",
+      "organization": "U.S. Geological Survey",
+      "description": "SFB mapper, services and files",
+      "version": "v0.0.0",
+      "status": ["Archival"],
+  
+      "permissions": {
+        "usageType": "openSource",
+        "licenses": [
+          {
+            "name": "Public Domain",
+            "URL": "https://github.com/USGS-WiM/sfb-map/blob/master/LICENSE.md"
+          }
+        ]
+      },
+  
+      "homepageURL": "https://wim.usgs.gov",
+      "downloadURL": "https://github.com/USGS-WiM/sfb-map/archive/master.zip",
+      "disclaimerURL": "https://github.com/USGS-WiM/sfb-map/blob/master/DISCLAIMER.md",
+      "repositoryUrl": "https://github.com/USGS-WiM/sfb-map",
+      "vcs": "git",
+  
+      "laborHours": null,
+  
+      "tags": [
+        "sfb",
+        "mapper"
+      ],
+  
+      "languages": [
+        "javascript"
+      ],
+  
+      "contact": {
+        "name": "Nick Estes",
+        "email": "njestes@usgs.gov"
+      },
+  
+      "date": {
+        "metadataLastUpdated": "2018-04-19"
+      }
+    }
+  ]
+  
